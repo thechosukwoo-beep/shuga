@@ -17,10 +17,19 @@ import {
   useNavigate,
   useParams,
 } from "react-router-dom"
-import { communityPosts, type CommunityPost } from "./data/community"
-import { marketShoes } from "./data/market"
-import { addShoe, loadShoes, resetShoes, saveShoes, updateShoe } from "./data/storage"
-import type { MarketCategory, MarketShoe, Shoe } from "./types"
+import { compressImage } from "./data/image"
+import {
+  addShoe,
+  deleteShoes,
+  loadClosetName,
+  loadShoes,
+  resetShoes,
+  saveClosetName,
+  updateShoe,
+} from "./data/storage"
+import { useAuth } from "./lib/auth"
+import { supabase } from "./lib/supabase"
+import type { Shoe } from "./types"
 
 const PAGE = "page-in min-h-dvh bg-night text-ink"
 const CARD =
@@ -32,19 +41,10 @@ const SECTION_LABEL = "text-[10px] font-medium tracking-[0.12em] text-mist"
 const BACK_LINK =
   "inline-flex items-center gap-1 text-[11px] tracking-[0.06em] text-mist transition duration-150 hover:text-ink"
 
-function chipClass(active: boolean) {
-  return `shrink-0 cursor-pointer rounded-full border px-3 py-1 text-[11px] transition duration-200 ease-out active:scale-95 ${
-    active
-      ? "border-ink bg-ink text-white"
-      : "border-line bg-white/60 text-mist hover:border-ink/25 hover:text-ink"
-  }`
-}
-
 function ClosetPage() {
-  const [items, setItems] = useState(loadShoes)
-  const [closetName, setClosetName] = useState(
-    () => localStorage.getItem("shuga-closet-name") || "슈가",
-  )
+  const { user } = useAuth()
+  const [items, setItems] = useState<Shoe[]>([])
+  const [closetName, setClosetName] = useState("슈가")
   const [renaming, setRenaming] = useState(false)
   const [query, setQuery] = useState("")
   const [searchOpen, setSearchOpen] = useState(false)
@@ -81,8 +81,12 @@ function ClosetPage() {
   }, [items, keyword, sortKey])
 
   useEffect(() => {
-    saveShoes(items)
-  }, [items])
+    if (!user) return
+    Promise.all([loadShoes(), loadClosetName()]).then(([shoes, name]) => {
+      setItems(shoes)
+      setClosetName(name)
+    })
+  }, [user])
 
   useEffect(() => {
     if (searchOpen) searchRef.current?.focus()
@@ -126,10 +130,10 @@ function ClosetPage() {
     setRenaming(true)
   }
 
-  function saveClosetName(value: string) {
+  function commitClosetName(value: string) {
     const next = value.trim() || "슈가"
     setClosetName(next)
-    localStorage.setItem("shuga-closet-name", next)
+    void saveClosetName(next)
     setRenaming(false)
   }
 
@@ -154,8 +158,11 @@ function ClosetPage() {
     )
   }
 
-  function deleteSelected() {
-    setItems((current) => current.filter((shoe) => !selected.includes(shoe.id)))
+  async function deleteSelected() {
+    const ids = selected
+    const ok = await deleteShoes(ids)
+    if (!ok) return
+    setItems((current) => current.filter((shoe) => !ids.includes(shoe.id)))
     setSelected([])
   }
 
@@ -178,7 +185,7 @@ function ClosetPage() {
               }}
               onChange={(event) => setClosetName(event.target.value)}
               onBlur={(event) => {
-                if (renaming) saveClosetName(event.target.value)
+                if (renaming) commitClosetName(event.target.value)
               }}
               onKeyDown={(event) => {
                 if (!renaming) return
@@ -363,7 +370,7 @@ function ClosetPage() {
                 onClick={() => setAddOpen(false)}
                 className="fixed inset-0 z-30 cursor-default bg-ink/15 backdrop-blur-[2px]"
               />
-              <div className="sheet-in fixed bottom-[4.5rem] right-[max(1.5rem,calc(50%-215px+1.5rem))] z-40 min-w-[7rem] overflow-hidden rounded-xl border border-line bg-white/95 py-1 shadow-[0_14px_30px_-16px_rgba(25,23,19,0.35)] backdrop-blur-xl">
+              <div className="sheet-in fixed bottom-[6.25rem] right-[max(1.5rem,calc(50%-215px+1.5rem))] z-40 min-w-[7rem] overflow-hidden rounded-xl border border-line bg-white/95 py-1 shadow-[0_14px_30px_-16px_rgba(25,23,19,0.35)] backdrop-blur-xl">
                 <Link
                   to="/add/camera"
                   className="block cursor-pointer px-3 py-2 text-[11px] transition duration-150 hover:bg-card hover:text-clay"
@@ -385,7 +392,7 @@ function ClosetPage() {
             aria-label="신발 추가"
             aria-expanded={addOpen}
             className={`fixed bottom-20 right-[max(1.5rem,calc(50%-215px+1.5rem))] z-40 flex size-9 cursor-pointer items-center justify-center rounded-full bg-ink text-sm text-white shadow-[0_6px_18px_-6px_rgba(25,23,19,0.5)] transition duration-200 ease-out hover:shadow-[0_10px_24px_-8px_rgba(25,23,19,0.55)] active:scale-90 ${
-              addOpen ? "rotate-45" : "hover:scale-105 hover:rotate-90"
+              addOpen ? "-translate-y-1" : "hover:-translate-y-0.5"
             }`}
           >
             +
@@ -492,19 +499,6 @@ function HomeIcon() {
   )
 }
 
-function CommunityIcon() {
-  return (
-    <svg viewBox="0 0 24 24" className="size-4" fill="none" aria-hidden="true">
-      <path
-        d="M5 16.5 5 8.5A2.5 2.5 0 0 1 7.5 6h9A2.5 2.5 0 0 1 19 8.5v5A2.5 2.5 0 0 1 16.5 16H9l-4 3.2Z"
-        stroke="currentColor"
-        strokeWidth="1.8"
-        strokeLinejoin="round"
-      />
-    </svg>
-  )
-}
-
 function ClosetIcon() {
   return (
     <svg viewBox="0 0 24 24" className="size-4" fill="none" aria-hidden="true">
@@ -565,236 +559,155 @@ function CheckIcon() {
   )
 }
 
-const MARKET_CATEGORIES: { id: "all" | MarketCategory; label: string }[] = [
-  { id: "all", label: "전체" },
-  { id: "sneakers", label: "스니커즈" },
-  { id: "running", label: "러닝" },
-  { id: "sandals", label: "샌달" },
-  { id: "slides", label: "슬리퍼" },
-]
-
 function formatPrice(price: number) {
   return `${price.toLocaleString("ko-KR")}원`
 }
 
-const TRENDING_KEYWORDS = ["덩크", "뉴발란스", "삼바", "조던", "아식스"]
-const TRENDING_SHOES = marketShoes.slice(0, 5)
+function authErrorMessage(message: string) {
+  const text = message.toLowerCase()
+  if (text.includes("invalid login")) return "이메일 또는 비밀번호가 맞지 않아요"
+  if (
+    text.includes("already registered") ||
+    text.includes("already been registered")
+  ) {
+    return "이미 있는 계정이에요"
+  }
+  if (text.includes("password")) return "비밀번호는 6자 이상이에요"
+  if (text.includes("email")) return "이메일을 확인해 주세요"
+  return "지금은 들어가기 어려워요"
+}
 
-function SearchPage() {
-  const [query, setQuery] = useState("")
-  const [focused, setFocused] = useState(false)
-  const [category, setCategory] = useState<"all" | MarketCategory>("all")
-  const keyword = query.trim().toLowerCase()
-  const filtered = useMemo(
-    () =>
-      marketShoes.filter((shoe) => {
-        const matchesCategory = category === "all" || shoe.category === category
-        const matchesQuery =
-          !keyword ||
-          shoe.name.toLowerCase().includes(keyword) ||
-          shoe.brand.toLowerCase().includes(keyword)
-        return matchesCategory && matchesQuery
-      }),
-    [category, keyword],
-  )
-
-  const showTrending = focused && !keyword
-
+function LoadingPage() {
   return (
-    <main className={`px-4 pb-32 pt-6 ${PAGE}`}>
-      <div>
-        <h1 className="text-[19px] font-semibold tracking-tight">구경</h1>
-        <p className="mt-1 text-[11px] text-mist">시중에 나온 신발을 둘러보세요</p>
-      </div>
-      <label className="mt-4 block">
-        <span className="sr-only">시중 신발 검색</span>
-        <input
-          type="search"
-          value={query}
-          onChange={(event) => setQuery(event.target.value)}
-          onFocus={() => setFocused(true)}
-          onBlur={() => setTimeout(() => setFocused(false), 150)}
-          placeholder="브랜드, 모델명 검색"
-          className={FIELD}
-        />
-      </label>
-
-      {showTrending ? (
-        <div className="mt-5 space-y-6">
-          <section>
-            <h2 className={SECTION_LABEL}>인기 검색어</h2>
-            <ol className="mt-2">
-              {TRENDING_KEYWORDS.map((kw, i) => (
-                <li key={kw}>
-                  <button
-                    type="button"
-                    onMouseDown={(event) => event.preventDefault()}
-                    onClick={() => {
-                      setQuery(kw)
-                      setFocused(false)
-                    }}
-                    className="group flex w-full cursor-pointer items-center gap-3 rounded-lg px-1.5 py-[7px] text-left transition duration-150 hover:bg-card"
-                  >
-                    <span
-                      className={`w-3 text-[11px] font-semibold tabular-nums ${
-                        i < 3 ? "text-clay" : "text-mist/60"
-                      }`}
-                    >
-                      {i + 1}
-                    </span>
-                    <span className="text-[12.5px] transition duration-150 group-hover:text-clay">
-                      {kw}
-                    </span>
-                  </button>
-                </li>
-              ))}
-            </ol>
-          </section>
-          <section>
-            <h2 className={SECTION_LABEL}>요즘 많이 찾는 신발</h2>
-            <ul className="mt-2">
-              {TRENDING_SHOES.map((shoe) => (
-                <li key={shoe.id}>
-                  <Link
-                    to={`/browse/${shoe.id}`}
-                    className="group flex cursor-pointer items-center gap-3 rounded-lg px-1.5 py-1.5 transition duration-150 hover:bg-card"
-                  >
-                    <span className="size-9 shrink-0 overflow-hidden rounded-lg bg-card">
-                      <img
-                        src={shoe.imageUrl}
-                        alt=""
-                        className="size-full object-cover transition duration-500 ease-out group-hover:scale-[1.08]"
-                      />
-                    </span>
-                    <span className="min-w-0 flex-1">
-                      <span className="block truncate text-[12px] font-medium">
-                        {shoe.name}
-                      </span>
-                      <span className="block truncate text-[10px] tracking-[0.02em] text-mist">
-                        {shoe.brand}
-                      </span>
-                    </span>
-                  </Link>
-                </li>
-              ))}
-            </ul>
-          </section>
-        </div>
-      ) : (
-        <>
-          <div className="no-scrollbar mt-3.5 flex gap-1.5 overflow-x-auto pb-1">
-            {MARKET_CATEGORIES.map((item) => (
-              <button
-                key={item.id}
-                type="button"
-                onClick={() => setCategory(item.id)}
-                className={chipClass(category === item.id)}
-              >
-                {item.label}
-              </button>
-            ))}
-          </div>
-          {filtered.length === 0 ? (
-            <p className="mt-20 text-center text-[12px] text-mist">
-              아직 없는 모델이에요
-            </p>
-          ) : (
-            <ul className="mt-5 grid grid-cols-2 gap-x-3 gap-y-5">
-              {filtered.map((shoe) => (
-                <li key={shoe.id}>
-                  <MarketCard shoe={shoe} />
-                </li>
-              ))}
-            </ul>
-          )}
-        </>
-      )}
+    <main className={`px-4 pt-6 ${PAGE}`}>
+      <p className="mt-20 text-center text-[12px] text-mist">불러오는 중</p>
     </main>
   )
 }
 
-function MarketCard({ shoe }: { shoe: MarketShoe }) {
-  return (
-    <Link
-      to={`/browse/${shoe.id}`}
-      className="group block cursor-pointer transition duration-300 ease-out hover:-translate-y-1 active:scale-[0.98]"
-    >
-      <div className="aspect-square overflow-hidden rounded-2xl bg-card shadow-[0_1px_2px_rgba(25,23,19,0.03)] transition duration-300 group-hover:shadow-[0_14px_28px_-18px_rgba(25,23,19,0.35)]">
-        <img
-          src={shoe.imageUrl}
-          alt={`${shoe.brand} ${shoe.name}`}
-          className="size-full object-cover transition duration-500 ease-out group-hover:scale-[1.06]"
-        />
-      </div>
-      <p className="mt-2 truncate text-[10px] tracking-[0.06em] text-mist">
-        {shoe.brand}
-      </p>
-      <p className="mt-0.5 truncate text-[12px] font-medium leading-snug">
-        {shoe.name}
-      </p>
-      <p className="mt-1 text-[11.5px] tabular-nums text-mute">
-        {formatPrice(shoe.price)}
-      </p>
-    </Link>
-  )
+function RequireAuth({ children }: { children: ReactNode }) {
+  const { user, loading } = useAuth()
+  if (loading) return <LoadingPage />
+  if (!user) return <Navigate to="/account" replace />
+  return children
 }
 
-function BrowseDetailPage() {
-  const { id } = useParams()
-  const shoe = marketShoes.find((item) => item.id === id)
+function SignInForm() {
+  const [email, setEmail] = useState("")
+  const [password, setPassword] = useState("")
+  const [mode, setMode] = useState<"in" | "up">("in")
+  const [error, setError] = useState("")
+  const [notice, setNotice] = useState("")
+  const [busy, setBusy] = useState(false)
 
-  if (!shoe) {
-    return (
-      <main className={`px-4 pt-6 ${PAGE}`}>
-        <Link to="/search" className={BACK_LINK}>
-          ← 구경
-        </Link>
-        <p className="mt-10 text-[12px] text-mist">없는 상품이에요</p>
-      </main>
-    )
+  async function submit() {
+    setError("")
+    setNotice("")
+    setBusy(true)
+    try {
+      if (mode === "up") {
+        const { data, error: next } = await supabase.auth.signUp({
+          email,
+          password,
+        })
+        if (next) {
+          setError(authErrorMessage(next.message))
+          return
+        }
+        if (data.user && !data.session) {
+          setNotice("메일함에서 확인을 눌러 주세요")
+        }
+      } else {
+        const { error: next } = await supabase.auth.signInWithPassword({
+          email,
+          password,
+        })
+        if (next) setError(authErrorMessage(next.message))
+      }
+    } finally {
+      setBusy(false)
+    }
   }
 
-  const categoryLabel =
-    MARKET_CATEGORIES.find((item) => item.id === shoe.category)?.label ?? ""
-
   return (
-    <main className={`pb-32 ${PAGE}`}>
-      <div className="px-4 pt-6">
-        <Link to="/search" className={BACK_LINK}>
-          ← 구경
-        </Link>
-      </div>
-      <div className="mt-4 aspect-square overflow-hidden bg-card">
-        <img
-          src={shoe.imageUrl}
-          alt={`${shoe.brand} ${shoe.name}`}
-          className="size-full object-cover"
-        />
-      </div>
-      <div className="px-4 pt-6">
-        <p className="text-[10px] tracking-[0.14em] text-mist">{shoe.brand}</p>
-        <h1 className="mt-1.5 text-[18px] font-semibold leading-snug tracking-tight">
-          {shoe.name}
-        </h1>
-        <p className="mt-2 text-[15px] font-medium tabular-nums text-clay">
-          {formatPrice(shoe.price)}
-        </p>
-        <p className="mt-4 border-t border-line pt-3 text-[11px] text-mist">
-          {categoryLabel} · 시중 판매 상품
-        </p>
-      </div>
-    </main>
+    <form
+      className="mt-6"
+      onSubmit={(event) => {
+        event.preventDefault()
+        void submit()
+      }}
+    >
+      <p className="text-[11px] leading-relaxed text-mist">
+        {mode === "in"
+          ? "같은 계정으로 어느 기기에서든 신발장이 따라옵니다."
+          : "이메일과 비밀번호로 계정을 만듭니다."}
+      </p>
+      <input
+        type="email"
+        value={email}
+        required
+        autoComplete="email"
+        onChange={(event) => setEmail(event.target.value)}
+        placeholder="이메일"
+        className={`mt-4 ${FIELD}`}
+      />
+      <input
+        type="password"
+        value={password}
+        required
+        minLength={6}
+        autoComplete={mode === "up" ? "new-password" : "current-password"}
+        onChange={(event) => setPassword(event.target.value)}
+        placeholder="비밀번호"
+        className={`mt-2 ${FIELD}`}
+      />
+      {error ? (
+        <p className="mt-3 text-center text-[11px] text-clay">{error}</p>
+      ) : null}
+      {notice ? (
+        <p className="mt-3 text-center text-[11px] text-mist">{notice}</p>
+      ) : null}
+      <button
+        type="submit"
+        disabled={busy}
+        className="mt-5 w-full cursor-pointer rounded-xl bg-ink py-3 text-[12.5px] font-medium tracking-[0.04em] text-white shadow-[0_6px_18px_-8px_rgba(25,23,19,0.5)] transition duration-200 ease-out hover:shadow-[0_10px_24px_-10px_rgba(25,23,19,0.55)] active:scale-[0.98] disabled:cursor-not-allowed disabled:bg-line disabled:text-mist disabled:shadow-none"
+      >
+        {mode === "in" ? "들어가기" : "계정 만들기"}
+      </button>
+      <button
+        type="button"
+        onClick={() => {
+          setMode(mode === "in" ? "up" : "in")
+          setError("")
+          setNotice("")
+        }}
+        className="mt-3 w-full cursor-pointer rounded-xl py-2.5 text-[12px] text-mist transition duration-200 ease-out hover:text-ink"
+      >
+        {mode === "in" ? "계정 만들기" : "이미 계정이 있어요"}
+      </button>
+    </form>
   )
 }
 
 function AccountPage() {
-  const [closet, setCloset] = useState(loadShoes)
-  const [closetName, setClosetName] = useState(
-    () => localStorage.getItem("shuga-closet-name") || "슈가",
-  )
+  const { user, loading } = useAuth()
+  const [closet, setCloset] = useState<Shoe[]>([])
+  const [closetName, setClosetName] = useState("슈가")
   const [renaming, setRenaming] = useState(false)
   const [confirmReset, setConfirmReset] = useState(false)
   const nameRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => {
+    if (!user) {
+      setCloset([])
+      setClosetName("슈가")
+      return
+    }
+    Promise.all([loadShoes(), loadClosetName()]).then(([shoes, name]) => {
+      setCloset(shoes)
+      setClosetName(name)
+    })
+  }, [user])
 
   useEffect(() => {
     if (renaming) nameRef.current?.focus()
@@ -807,15 +720,29 @@ function AccountPage() {
   function saveName(value: string) {
     const next = value.trim() || "슈가"
     setClosetName(next)
-    localStorage.setItem("shuga-closet-name", next)
+    void saveClosetName(next)
     setRenaming(false)
   }
 
-  function resetAll() {
-    setCloset(resetShoes())
-    localStorage.removeItem("shuga-closet-name")
+  async function resetAll() {
+    setCloset(await resetShoes())
+    await saveClosetName("슈가")
     setClosetName("슈가")
     setConfirmReset(false)
+  }
+
+  if (loading) return <LoadingPage />
+
+  if (!user) {
+    return (
+      <main className={`px-4 pb-32 pt-6 ${PAGE}`}>
+        <div>
+          <h1 className="text-[19px] font-semibold tracking-tight">내 계정</h1>
+          <p className="mt-1 text-[11px] text-mist">이메일로 들어갑니다</p>
+        </div>
+        <SignInForm />
+      </main>
+    )
   }
 
   const totalValue = closet.reduce((sum, shoe) => sum + shoe.price, 0)
@@ -970,13 +897,15 @@ function AccountPage() {
       <section className="mt-8 border-t border-line pt-5">
         <h2 className={SECTION_LABEL}>설정</h2>
         <p className="mt-2 text-[11px] leading-relaxed text-mist">
-          기록은 이 기기의 브라우저에만 저장됩니다. 비우면 되돌릴 수 없어요.
+          신발과 사진은 계정에 저장됩니다. 비우면 되돌릴 수 없어요.
         </p>
-        {confirmReset ? (
+        {closet.length === 0 ? null : confirmReset ? (
           <div className="mt-3 flex gap-2">
             <button
               type="button"
-              onClick={resetAll}
+              onClick={() => {
+                void resetAll()
+              }}
               className="flex-1 cursor-pointer rounded-xl bg-clay py-2.5 text-[12px] font-medium text-white shadow-[0_6px_16px_-8px_rgba(164,87,58,0.7)] transition duration-200 ease-out hover:brightness-95 active:scale-[0.98]"
             >
               정말 비우기
@@ -998,16 +927,36 @@ function AccountPage() {
             신발장 비우기
           </button>
         )}
+        <button
+          type="button"
+          onClick={() => {
+            void supabase.auth.signOut()
+          }}
+          className="mt-2 w-full cursor-pointer rounded-xl py-2.5 text-[12px] text-mist transition duration-200 ease-out hover:text-ink"
+        >
+          나가기
+        </button>
       </section>
     </main>
   )
 }
 
 function HomePage() {
-  const closet = useMemo(loadShoes, [])
-  const closetName = localStorage.getItem("shuga-closet-name") || "슈가"
-  const latest = communityPosts[0]
-  const picks = marketShoes.slice(0, 4)
+  const { user } = useAuth()
+  const [closet, setCloset] = useState<Shoe[]>([])
+  const [closetName, setClosetName] = useState("슈가")
+
+  useEffect(() => {
+    if (!user) {
+      setCloset([])
+      setClosetName("슈가")
+      return
+    }
+    Promise.all([loadShoes(), loadClosetName()]).then(([shoes, name]) => {
+      setCloset(shoes)
+      setClosetName(name)
+    })
+  }, [user])
 
   const todayPick = useMemo(
     () => closet[Math.floor(Math.random() * closet.length)],
@@ -1033,7 +982,7 @@ function HomePage() {
         </p>
         <div className="mt-2 flex items-baseline justify-between gap-3">
           <p className="min-w-0 text-[11px] leading-relaxed text-mist">
-            신발을 고르고, 읽고, 담아 두는 집
+            신발을 담아 두는 집
           </p>
           <p className="shrink-0 pr-1.5 text-[10px] tracking-[0.06em] text-mist">
             {today}
@@ -1116,250 +1065,6 @@ function HomePage() {
           ))}
         </span>
       </Link>
-
-      <Link
-        to={`/community/${latest.id}`}
-        className={`group mt-2.5 overflow-hidden ${CARD_LINK}`}
-      >
-        <span className="relative block aspect-[16/9] overflow-hidden bg-card">
-          <img
-            src={latest.imageUrl}
-            alt=""
-            className="size-full object-cover transition duration-700 ease-out group-hover:scale-[1.05]"
-          />
-          <span className="absolute left-3 top-3">
-            <TagBadge tag={latest.tag} />
-          </span>
-        </span>
-        <span className="block px-4 py-3.5">
-          <span className="block text-[13.5px] font-medium leading-snug">
-            {latest.title}
-          </span>
-          <span className="mt-1.5 block text-[11px] leading-relaxed text-mist">
-            {latest.excerpt}
-          </span>
-          <span className="mt-2.5 block text-[10px] text-mist/70">
-            {latest.date}
-          </span>
-        </span>
-      </Link>
-
-      <div className="mt-7 flex items-baseline justify-between">
-        <h2 className={SECTION_LABEL}>요즘 많이 보는 신발</h2>
-        <Link
-          to="/search"
-          className="group text-[10px] text-mist transition duration-150 hover:text-clay"
-        >
-          더보기
-          <span className="ml-0.5 inline-block transition duration-200 group-hover:translate-x-0.5">
-            →
-          </span>
-        </Link>
-      </div>
-      <ul className="mt-3 grid grid-cols-4 gap-2.5">
-        {picks.map((shoe) => (
-          <li key={shoe.id}>
-            <Link
-              to={`/browse/${shoe.id}`}
-              className="group block cursor-pointer transition duration-300 ease-out hover:-translate-y-1"
-            >
-              <div className="aspect-square overflow-hidden rounded-xl bg-card transition duration-300 group-hover:shadow-[0_10px_22px_-14px_rgba(25,23,19,0.35)]">
-                <img
-                  src={shoe.imageUrl}
-                  alt={`${shoe.brand} ${shoe.name}`}
-                  className="size-full object-cover transition duration-500 ease-out group-hover:scale-[1.07]"
-                />
-              </div>
-              <p className="mt-1.5 truncate text-[9px] tracking-[0.04em] text-mist">
-                {shoe.brand}
-              </p>
-              <p className="truncate text-[10px] font-medium leading-tight">
-                {shoe.name}
-              </p>
-            </Link>
-          </li>
-        ))}
-      </ul>
-    </main>
-  )
-}
-
-function TagBadge({ tag }: { tag: CommunityPost["tag"] }) {
-  return (
-    <span className="rounded-full bg-white/90 px-2 py-[3px] text-[9px] font-medium tracking-[0.12em] text-clay shadow-[0_1px_3px_rgba(25,23,19,0.12)] backdrop-blur">
-      {tag}
-    </span>
-  )
-}
-
-function CommunityPage() {
-  const [tag, setTag] = useState<"전체" | "트렌드" | "이슈">("전체")
-  const posts =
-    tag === "전체"
-      ? communityPosts
-      : communityPosts.filter((post) => post.tag === tag)
-
-  const [featured, ...rest] = posts
-
-  return (
-    <main className={`pb-32 pt-6 ${PAGE}`}>
-      <div className="px-4">
-        <h1 className="text-[19px] font-semibold tracking-tight">커뮤니티</h1>
-        <p className="mt-1 text-[11px] text-mist">요즘 신발 이야기</p>
-      </div>
-
-      <div className="no-scrollbar mt-4 flex gap-1.5 overflow-x-auto px-4 pb-1">
-        {(["전체", "트렌드", "이슈"] as const).map((item) => (
-          <button
-            key={item}
-            type="button"
-            onClick={() => setTag(item)}
-            className={chipClass(tag === item)}
-          >
-            {item}
-          </button>
-        ))}
-      </div>
-
-      {featured ? (
-        <Link
-          to={`/community/${featured.id}`}
-          className="group mt-4 block cursor-pointer px-4 transition duration-300 ease-out active:scale-[0.99]"
-        >
-          <div className="relative aspect-[4/3] overflow-hidden rounded-2xl bg-card shadow-[0_1px_2px_rgba(25,23,19,0.04)] transition duration-300 group-hover:shadow-[0_16px_32px_-20px_rgba(25,23,19,0.4)]">
-            <img
-              src={featured.imageUrl}
-              alt=""
-              className="size-full object-cover transition duration-700 ease-out group-hover:scale-[1.05]"
-            />
-            <span className="absolute left-3 top-3">
-              <TagBadge tag={featured.tag} />
-            </span>
-          </div>
-          <p className="mt-3 text-[16px] font-semibold leading-snug tracking-tight transition duration-200 group-hover:text-clay">
-            {featured.title}
-          </p>
-          <p className="mt-1.5 text-[11.5px] leading-relaxed text-mist">
-            {featured.excerpt}
-          </p>
-          <p className="mt-2 text-[10px] text-mist/70">{featured.date}</p>
-        </Link>
-      ) : null}
-
-      {rest.length > 0 ? (
-        <ul className="mt-6 divide-y divide-line px-4">
-          {rest.map((post) => (
-            <li key={post.id}>
-              <Link
-                to={`/community/${post.id}`}
-                className="group flex cursor-pointer items-start gap-3 py-3.5"
-              >
-                <span className="min-w-0 flex-1">
-                  <span className="block text-[9px] tracking-[0.12em] text-clay">
-                    {post.tag}
-                  </span>
-                  <span className="mt-1 block text-[13px] font-medium leading-snug transition duration-200 group-hover:text-clay">
-                    {post.title}
-                  </span>
-                  <span className="mt-1.5 block text-[10px] text-mist/70">
-                    {post.date}
-                  </span>
-                </span>
-                <span className="size-[60px] shrink-0 overflow-hidden rounded-xl bg-card">
-                  <img
-                    src={post.imageUrl}
-                    alt=""
-                    className="size-full object-cover transition duration-500 ease-out group-hover:scale-[1.08]"
-                  />
-                </span>
-              </Link>
-            </li>
-          ))}
-        </ul>
-      ) : null}
-    </main>
-  )
-}
-
-function CommunityDetailPage() {
-  const { id } = useParams()
-  const post = communityPosts.find((item) => item.id === id)
-
-  if (!post) {
-    return (
-      <main className={`px-4 pt-6 ${PAGE}`}>
-        <Link to="/community" className={BACK_LINK}>
-          ← 커뮤니티
-        </Link>
-        <p className="mt-10 text-[12px] text-mist">없는 글이에요</p>
-      </main>
-    )
-  }
-
-  const more = communityPosts.filter((item) => item.id !== post.id).slice(0, 3)
-
-  return (
-    <main className={`pb-32 pt-6 ${PAGE}`}>
-      <div className="px-4">
-        <Link to="/community" className={BACK_LINK}>
-          ← 커뮤니티
-        </Link>
-      </div>
-
-      <div className="mt-5 px-4">
-        <p className="text-[9px] tracking-[0.14em] text-clay">{post.tag}</p>
-        <h1 className="mt-2 text-[20px] font-semibold leading-snug tracking-tight">
-          {post.title}
-        </h1>
-        <p className="mt-2 text-[11px] leading-relaxed text-mist">
-          {post.excerpt}
-        </p>
-        <p className="mt-3 text-[10px] tracking-[0.04em] text-mist/70">
-          {post.date}
-        </p>
-      </div>
-
-      <div className="mt-5 aspect-[4/3] overflow-hidden bg-card">
-        <img
-          src={post.imageUrl}
-          alt=""
-          className="size-full object-cover"
-        />
-      </div>
-
-      <p className="mt-6 px-4 text-[13px] leading-[1.9] text-ink/85">
-        {post.body}
-      </p>
-
-      <div className="mt-9 px-4">
-        <h2 className={SECTION_LABEL}>다른 이야기</h2>
-        <ul className="mt-2 divide-y divide-line">
-          {more.map((item) => (
-            <li key={item.id}>
-              <Link
-                to={`/community/${item.id}`}
-                className="group flex cursor-pointer items-center gap-3 py-3"
-              >
-                <span className="size-11 shrink-0 overflow-hidden rounded-lg bg-card">
-                  <img
-                    src={item.imageUrl}
-                    alt=""
-                    className="size-full object-cover transition duration-500 ease-out group-hover:scale-[1.08]"
-                  />
-                </span>
-                <span className="min-w-0 flex-1">
-                  <span className="block text-[9px] tracking-[0.12em] text-clay">
-                    {item.tag}
-                  </span>
-                  <span className="mt-0.5 block truncate text-[12px] font-medium transition duration-200 group-hover:text-clay">
-                    {item.title}
-                  </span>
-                </span>
-              </Link>
-            </li>
-          ))}
-        </ul>
-      </div>
     </main>
   )
 }
@@ -1374,18 +1079,12 @@ function TabBar() {
 
   return (
     <nav className="fixed bottom-0 left-1/2 z-20 w-full max-w-[430px] -translate-x-1/2 border-t border-line bg-night/85 pb-[env(safe-area-inset-bottom)] backdrop-blur-xl">
-      <ul className="grid h-14 grid-cols-5">
+      <ul className="grid h-14 grid-cols-3">
         <TabItem to="/" label="홈" end>
           <HomeIcon />
         </TabItem>
-        <TabItem to="/community" label="커뮤니티">
-          <CommunityIcon />
-        </TabItem>
         <TabItem to="/closet" label="신발장">
           <ClosetIcon />
-        </TabItem>
-        <TabItem to="/search" label="검색">
-          <SearchIcon />
         </TabItem>
         <TabItem to="/account" label="계정">
           <AccountIcon />
@@ -1435,30 +1134,73 @@ function TabItem({
 
 function CameraAddPage() {
   const navigate = useNavigate()
+  const [photo, setPhoto] = useState<Blob | null>(null)
   const [preview, setPreview] = useState("")
   const [name, setName] = useState("")
   const [brand, setBrand] = useState("")
+  const [price, setPrice] = useState("")
   const [memo, setMemo] = useState("")
+  const [compressing, setCompressing] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState("")
 
-  function onFile(event: ChangeEvent<HTMLInputElement>) {
+  useEffect(() => {
+    return () => {
+      if (preview.startsWith("blob:")) URL.revokeObjectURL(preview)
+    }
+  }, [preview])
+
+  async function onFile(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0]
+    event.target.value = ""
     if (!file) return
-    const reader = new FileReader()
-    reader.onload = () => setPreview(String(reader.result))
-    reader.readAsDataURL(file)
+    if (file.type && !file.type.startsWith("image/")) {
+      setError("사진만 넣을 수 있어요")
+      return
+    }
+
+    setError("")
+    setCompressing(true)
+    try {
+      const blob = await compressImage(file)
+      setPhoto(blob)
+      setPreview((current) => {
+        if (current.startsWith("blob:")) URL.revokeObjectURL(current)
+        return URL.createObjectURL(blob)
+      })
+    } catch {
+      setPhoto(null)
+      setPreview((current) => {
+        if (current.startsWith("blob:")) URL.revokeObjectURL(current)
+        return ""
+      })
+      setError("이 사진은 쓸 수 없어요. 다른 장으로 찍어 주세요.")
+    } finally {
+      setCompressing(false)
+    }
   }
 
-  function save() {
-    if (!preview) return
-    addShoe({
-      id: crypto.randomUUID(),
-      name: name.trim() || "새 신발",
-      brand: brand.trim() || "Brand",
-      imageUrl: preview,
-      price: 0,
-      addedAt: Date.now(),
-      memo: memo.trim() || undefined,
-    })
+  async function save() {
+    if (!photo || compressing || saving) return
+    setSaving(true)
+    const parsed = Number(price.replace(/,/g, ""))
+    const ok = await addShoe(
+      {
+        id: crypto.randomUUID(),
+        name: name.trim() || "새 신발",
+        brand: brand.trim() || "Brand",
+        imageUrl: "",
+        price: Number.isFinite(parsed) && parsed > 0 ? Math.round(parsed) : 0,
+        addedAt: Date.now(),
+        memo: memo.trim() || undefined,
+      },
+      photo,
+    )
+    if (!ok) {
+      setError("사진을 올리지 못했어요")
+      setSaving(false)
+      return
+    }
     navigate("/closet")
   }
 
@@ -1471,12 +1213,19 @@ function CameraAddPage() {
         <h1 className="text-[18px] font-semibold tracking-tight">카메라로 추가</h1>
         <p className="mt-1 text-[11px] text-mist">사진을 찍거나 골라 넣으세요</p>
       </div>
-      <label className="mt-5 flex aspect-square cursor-pointer items-center justify-center overflow-hidden rounded-2xl border border-dashed border-line bg-white/60 transition duration-200 ease-out hover:border-clay/40 hover:bg-white active:scale-[0.99]">
+      <label className="relative mt-5 flex aspect-square cursor-pointer items-center justify-center overflow-hidden rounded-2xl border border-dashed border-line bg-white/60 transition duration-200 ease-out hover:border-clay/40 hover:bg-white active:scale-[0.99]">
         {preview ? (
           <img src={preview} alt="" className="size-full object-cover" />
         ) : (
-          <span className="text-[11px] tracking-[0.06em] text-mist">사진 찍기</span>
+          <span className="text-[11px] tracking-[0.06em] text-mist">
+            {compressing ? "사진을 줄이는 중" : "사진 찍기"}
+          </span>
         )}
+        {compressing && preview ? (
+          <span className="absolute inset-0 flex items-center justify-center bg-white/70 text-[11px] tracking-[0.06em] text-mist">
+            사진을 줄이는 중
+          </span>
+        ) : null}
         <input
           type="file"
           accept="image/*"
@@ -1497,6 +1246,13 @@ function CameraAddPage() {
         placeholder="브랜드"
         className={`mt-2 ${FIELD}`}
       />
+      <input
+        value={price}
+        inputMode="numeric"
+        onChange={(event) => setPrice(event.target.value)}
+        placeholder="가격"
+        className={`mt-2 ${FIELD}`}
+      />
       <textarea
         value={memo}
         onChange={(event) => setMemo(event.target.value)}
@@ -1505,10 +1261,15 @@ function CameraAddPage() {
         placeholder="기록 (어디서 신었는지, 왜 골랐는지)"
         className={`mt-2 resize-none leading-relaxed ${FIELD}`}
       />
+      {error ? (
+        <p className="mt-3 text-center text-[11px] text-clay">{error}</p>
+      ) : null}
       <button
         type="button"
-        onClick={save}
-        disabled={!preview}
+        onClick={() => {
+          void save()
+        }}
+        disabled={!photo || compressing || saving}
         className="mt-5 w-full cursor-pointer rounded-xl bg-ink py-3 text-[12.5px] font-medium tracking-[0.04em] text-white shadow-[0_6px_18px_-8px_rgba(25,23,19,0.5)] transition duration-200 ease-out hover:shadow-[0_10px_24px_-10px_rgba(25,23,19,0.55)] active:scale-[0.98] disabled:cursor-not-allowed disabled:bg-line disabled:text-mist disabled:shadow-none"
       >
         넣기
@@ -1519,29 +1280,73 @@ function CameraAddPage() {
 
 function ManualAddPage() {
   const navigate = useNavigate()
-  const [query, setQuery] = useState("")
-  const keyword = query.trim().toLowerCase()
-  const filtered = useMemo(
-    () =>
-      keyword
-        ? marketShoes.filter(
-            (shoe) =>
-              shoe.name.toLowerCase().includes(keyword) ||
-              shoe.brand.toLowerCase().includes(keyword),
-          )
-        : marketShoes,
-    [keyword],
-  )
+  const [photo, setPhoto] = useState<Blob | null>(null)
+  const [preview, setPreview] = useState("")
+  const [name, setName] = useState("")
+  const [brand, setBrand] = useState("")
+  const [price, setPrice] = useState("")
+  const [memo, setMemo] = useState("")
+  const [compressing, setCompressing] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState("")
 
-  function pick(shoe: MarketShoe) {
-    addShoe({
-      id: crypto.randomUUID(),
-      name: shoe.name,
-      brand: shoe.brand,
-      imageUrl: shoe.imageUrl,
-      price: shoe.price,
-      addedAt: Date.now(),
-    })
+  useEffect(() => {
+    return () => {
+      if (preview.startsWith("blob:")) URL.revokeObjectURL(preview)
+    }
+  }, [preview])
+
+  async function onFile(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0]
+    event.target.value = ""
+    if (!file) return
+    if (file.type && !file.type.startsWith("image/")) {
+      setError("사진만 넣을 수 있어요")
+      return
+    }
+
+    setError("")
+    setCompressing(true)
+    try {
+      const blob = await compressImage(file)
+      setPhoto(blob)
+      setPreview((current) => {
+        if (current.startsWith("blob:")) URL.revokeObjectURL(current)
+        return URL.createObjectURL(blob)
+      })
+    } catch {
+      setPhoto(null)
+      setPreview((current) => {
+        if (current.startsWith("blob:")) URL.revokeObjectURL(current)
+        return ""
+      })
+      setError("이 사진은 쓸 수 없어요. 다른 장으로 골라 주세요.")
+    } finally {
+      setCompressing(false)
+    }
+  }
+
+  async function save() {
+    if (compressing || saving) return
+    setSaving(true)
+    const parsed = Number(price.replace(/,/g, ""))
+    const ok = await addShoe(
+      {
+        id: crypto.randomUUID(),
+        name: name.trim() || "새 신발",
+        brand: brand.trim() || "Brand",
+        imageUrl: photo ? "" : "/placeholder-shoe.svg",
+        price: Number.isFinite(parsed) && parsed > 0 ? Math.round(parsed) : 0,
+        addedAt: Date.now(),
+        memo: memo.trim() || undefined,
+      },
+      photo ?? undefined,
+    )
+    if (!ok) {
+      setError("담지 못했어요")
+      setSaving(false)
+      return
+    }
     navigate("/closet")
   }
 
@@ -1552,53 +1357,58 @@ function ManualAddPage() {
       </Link>
       <div className="mt-5">
         <h1 className="text-[18px] font-semibold tracking-tight">직접 추가</h1>
-        <p className="mt-1 text-[11px] text-mist">이름이나 브랜드로 찾아 넣으세요</p>
+        <p className="mt-1 text-[11px] text-mist">이름만 적어도 담깁니다</p>
       </div>
-      <label className="mt-4 block">
-        <span className="sr-only">신발 검색</span>
-        <input
-          type="search"
-          value={query}
-          autoFocus
-          onChange={(event) => setQuery(event.target.value)}
-          placeholder="Nike, Dunk, Samba..."
-          className={FIELD}
-        />
+      <label className="relative mt-5 flex aspect-square cursor-pointer items-center justify-center overflow-hidden rounded-2xl border border-dashed border-line bg-white/60 transition duration-200 ease-out hover:border-clay/40 hover:bg-white active:scale-[0.99]">
+        {preview ? (
+          <img src={preview} alt="" className="size-full object-cover" />
+        ) : (
+          <span className="text-[11px] tracking-[0.06em] text-mist">
+            {compressing ? "사진을 줄이는 중" : "사진 고르기 (선택)"}
+          </span>
+        )}
+        <input type="file" accept="image/*" onChange={onFile} className="sr-only" />
       </label>
-      {filtered.length === 0 ? (
-        <p className="mt-20 text-center text-[12px] text-mist">아직 없는 모델이에요</p>
-      ) : (
-        <ul className="mt-3 divide-y divide-line">
-          {filtered.map((shoe) => (
-            <li key={shoe.id}>
-              <button
-                type="button"
-                onClick={() => pick(shoe)}
-                className="group flex w-full cursor-pointer items-center gap-3 rounded-lg px-1.5 py-2.5 text-left transition duration-200 hover:bg-card"
-              >
-                <span className="size-12 shrink-0 overflow-hidden rounded-lg bg-card">
-                  <img
-                    src={shoe.imageUrl}
-                    alt=""
-                    className="size-full object-cover transition duration-500 ease-out group-hover:scale-[1.07]"
-                  />
-                </span>
-                <span className="min-w-0 flex-1">
-                  <span className="block truncate text-[12px] font-medium">
-                    {shoe.name}
-                  </span>
-                  <span className="mt-0.5 block truncate text-[10px] tracking-[0.04em] text-mist">
-                    {shoe.brand}
-                  </span>
-                </span>
-                <span className="shrink-0 text-[11px] text-mist opacity-0 transition duration-200 group-hover:opacity-100 group-hover:text-clay">
-                  담기
-                </span>
-              </button>
-            </li>
-          ))}
-        </ul>
-      )}
+      <input
+        value={name}
+        onChange={(event) => setName(event.target.value)}
+        placeholder="이름"
+        className={`mt-4 ${FIELD}`}
+      />
+      <input
+        value={brand}
+        onChange={(event) => setBrand(event.target.value)}
+        placeholder="브랜드"
+        className={`mt-2 ${FIELD}`}
+      />
+      <input
+        value={price}
+        inputMode="numeric"
+        onChange={(event) => setPrice(event.target.value)}
+        placeholder="가격"
+        className={`mt-2 ${FIELD}`}
+      />
+      <textarea
+        value={memo}
+        onChange={(event) => setMemo(event.target.value)}
+        rows={2}
+        maxLength={120}
+        placeholder="기록 (어디서 신었는지, 왜 골랐는지)"
+        className={`mt-2 resize-none leading-relaxed ${FIELD}`}
+      />
+      {error ? (
+        <p className="mt-3 text-center text-[11px] text-clay">{error}</p>
+      ) : null}
+      <button
+        type="button"
+        onClick={() => {
+          void save()
+        }}
+        disabled={compressing || saving}
+        className="mt-5 w-full cursor-pointer rounded-xl bg-ink py-3 text-[12.5px] font-medium tracking-[0.04em] text-white shadow-[0_6px_18px_-8px_rgba(25,23,19,0.5)] transition duration-200 ease-out hover:shadow-[0_10px_24px_-10px_rgba(25,23,19,0.55)] active:scale-[0.98] disabled:cursor-not-allowed disabled:bg-line disabled:text-mist disabled:shadow-none"
+      >
+        넣기
+      </button>
     </main>
   )
 }
@@ -1623,12 +1433,25 @@ function formatDay(time: number) {
 
 function DetailPage() {
   const { id } = useParams()
-  const [shoe, setShoe] = useState(() =>
-    loadShoes().find((item) => item.id === id),
-  )
-  const [memo, setMemo] = useState(shoe?.memo ?? "")
-  const [editingMemo, setEditingMemo] = useState(false)
-  const memoRef = useRef<HTMLTextAreaElement>(null)
+  const [shoe, setShoe] = useState<Shoe>()
+  const [memo, setMemo] = useState("")
+  const [editingDetails, setEditingDetails] = useState(false)
+  const [name, setName] = useState("")
+  const [brand, setBrand] = useState("")
+  const [price, setPrice] = useState("")
+  const [ready, setReady] = useState(false)
+
+  useEffect(() => {
+    setReady(false)
+    void loadShoes().then((items) => {
+      const found = items.find((item) => item.id === id)
+      setShoe(found)
+      setMemo(found?.memo ?? "")
+      setReady(true)
+    })
+  }, [id])
+
+  if (!ready) return <LoadingPage />
 
   if (!shoe) {
     return (
@@ -1645,34 +1468,64 @@ function DetailPage() {
   const wornToday =
     shoe.lastWornAt !== undefined && isSameDay(shoe.lastWornAt, Date.now())
 
-  function patch(changes: Partial<Shoe>) {
-    const next = updateShoe(shoe!.id, changes)
+  async function patch(changes: Partial<Shoe>) {
+    const next = await updateShoe(shoe!.id, changes)
+    if (!next) return
     setShoe(next.find((item) => item.id === shoe!.id))
   }
 
-  function startMemo() {
-    setEditingMemo(true)
-    requestAnimationFrame(() => memoRef.current?.focus())
+  function startDetails() {
+    setName(shoe!.name)
+    setBrand(shoe!.brand)
+    setPrice(shoe!.price > 0 ? String(shoe!.price) : "")
+    setMemo(shoe!.memo ?? "")
+    setEditingDetails(true)
   }
 
-  function saveMemo() {
-    setEditingMemo(false)
-    const trimmed = memo.trim()
-    if (trimmed === (shoe!.memo ?? "")) return
-    patch({ memo: trimmed })
+  function saveDetails() {
+    const parsed = Number(price.replace(/,/g, ""))
+    const nextName = name.trim() || "새 신발"
+    const nextBrand = brand.trim() || "Brand"
+    const nextPrice =
+      Number.isFinite(parsed) && parsed > 0 ? Math.round(parsed) : 0
+    const nextMemo = memo.trim()
+    setEditingDetails(false)
+    if (
+      nextName === shoe!.name &&
+      nextBrand === shoe!.brand &&
+      nextPrice === shoe!.price &&
+      nextMemo === (shoe!.memo ?? "")
+    ) {
+      return
+    }
+    void patch({
+      name: nextName,
+      brand: nextBrand,
+      price: nextPrice,
+      memo: nextMemo,
+    })
   }
 
   function wearToday() {
     if (wornToday) return
-    patch({ wornCount: wornCount + 1, lastWornAt: Date.now() })
+    void patch({ wornCount: wornCount + 1, lastWornAt: Date.now() })
   }
 
   return (
     <main className={`pb-20 ${PAGE}`}>
-      <div className="px-4 pt-6">
+      <div className="flex items-center justify-between pl-4 pr-0 pt-6">
         <Link to="/closet" className={BACK_LINK}>
           ← 신발장
         </Link>
+        <button
+          type="button"
+          onClick={editingDetails ? saveDetails : startDetails}
+          className={`cursor-pointer rounded-full px-3 py-1.5 text-[12.5px] transition duration-150 hover:bg-card active:scale-95 ${
+            editingDetails ? "font-medium text-clay" : "text-mist hover:text-clay"
+          }`}
+        >
+          {editingDetails ? "저장" : "수정"}
+        </button>
       </div>
       <div className="mt-4 aspect-square overflow-hidden bg-card">
         <img
@@ -1681,50 +1534,61 @@ function DetailPage() {
           className="size-full object-cover"
         />
       </div>
-      <div className="px-4 pt-6">
-        <p className="text-[10px] tracking-[0.14em] text-mist">{shoe.brand}</p>
-        <h1 className="mt-1.5 text-[18px] font-semibold leading-snug tracking-tight">
-          {shoe.name}
-        </h1>
-        {shoe.price > 0 ? (
-          <p className="mt-2 text-[15px] font-medium tabular-nums text-clay">
-            {formatPrice(shoe.price)}
-          </p>
-        ) : null}
-      </div>
-
-      <section className="mt-6 px-4">
-        <div className="flex items-baseline justify-between">
-          <h2 className={SECTION_LABEL}>기록</h2>
-          {shoe.memo || editingMemo ? (
-            <button
-              type="button"
-              onClick={editingMemo ? saveMemo : startMemo}
-              className="cursor-pointer rounded-full px-2 py-1 text-[10px] text-mist transition duration-150 hover:bg-card hover:text-clay active:scale-95"
-            >
-              {editingMemo ? "저장" : "고치기"}
-            </button>
+      {editingDetails ? (
+        <div className="space-y-4 px-4 pt-6">
+          <label className="block">
+            <span className={SECTION_LABEL}>이름</span>
+            <input
+              value={name}
+              autoFocus
+              onChange={(event) => setName(event.target.value)}
+              placeholder="이름"
+              className={`mt-2 ${FIELD}`}
+            />
+          </label>
+          <label className="block">
+            <span className={SECTION_LABEL}>브랜드</span>
+            <input
+              value={brand}
+              onChange={(event) => setBrand(event.target.value)}
+              placeholder="브랜드"
+              className={`mt-2 ${FIELD}`}
+            />
+          </label>
+          <label className="block">
+            <span className={SECTION_LABEL}>가격</span>
+            <input
+              value={price}
+              inputMode="numeric"
+              onChange={(event) => setPrice(event.target.value)}
+              placeholder="원"
+              className={`mt-2 ${FIELD}`}
+            />
+          </label>
+        </div>
+      ) : (
+        <div className="px-4 pt-6">
+          <p className="text-[10px] tracking-[0.14em] text-mist">{shoe.brand}</p>
+          <h1 className="mt-1.5 text-[18px] font-semibold leading-snug tracking-tight">
+            {shoe.name}
+          </h1>
+          {shoe.price > 0 ? (
+            <p className="mt-2 text-[15px] font-medium tabular-nums text-clay">
+              {formatPrice(shoe.price)}
+            </p>
           ) : null}
         </div>
-        {editingMemo ? (
+      )}
+
+      <section className="mt-6 px-4">
+        <h2 className={SECTION_LABEL}>기록</h2>
+        {editingDetails ? (
           <textarea
-            ref={memoRef}
             value={memo}
             onChange={(event) => setMemo(event.target.value)}
-            onBlur={saveMemo}
-            onKeyDown={(event) => {
-              if (event.key === "Enter" && !event.shiftKey) {
-                event.preventDefault()
-                event.currentTarget.blur()
-              }
-              if (event.key === "Escape") {
-                setMemo(shoe!.memo ?? "")
-                setEditingMemo(false)
-              }
-            }}
             rows={2}
             maxLength={120}
-            placeholder="어디서 신었는지, 왜 골랐는지 적어 두세요"
+            placeholder="아직 기록이 없어요"
             className={`mt-2 resize-none leading-relaxed ${FIELD}`}
           />
         ) : shoe.memo ? (
@@ -1732,13 +1596,7 @@ function DetailPage() {
             {shoe.memo}
           </p>
         ) : (
-          <button
-            type="button"
-            onClick={startMemo}
-            className="mt-2 w-full cursor-pointer rounded-xl border border-dashed border-line bg-white/50 py-3 text-[11px] text-mist transition duration-200 ease-out hover:border-clay/40 hover:bg-white hover:text-clay active:scale-[0.99]"
-          >
-            이 신발의 첫 기록을 남겨보세요
-          </button>
+          <p className="mt-2 text-[11px] text-mist">아직 기록이 없어요</p>
         )}
       </section>
 
@@ -1783,16 +1641,12 @@ export default function App() {
       <div className="mx-auto min-h-dvh w-full max-w-[430px] bg-night">
         <Routes>
           <Route path="/" element={<HomePage />} />
-          <Route path="/community" element={<CommunityPage />} />
-          <Route path="/community/:id" element={<CommunityDetailPage />} />
-          <Route path="/closet" element={<ClosetPage />} />
-          <Route path="/search" element={<SearchPage />} />
-          <Route path="/browse/:id" element={<BrowseDetailPage />} />
+          <Route path="/closet" element={<RequireAuth><ClosetPage /></RequireAuth>} />
           <Route path="/account" element={<AccountPage />} />
-          <Route path="/add/camera" element={<CameraAddPage />} />
-          <Route path="/add/search" element={<ManualAddPage />} />
+          <Route path="/add/camera" element={<RequireAuth><CameraAddPage /></RequireAuth>} />
+          <Route path="/add/search" element={<RequireAuth><ManualAddPage /></RequireAuth>} />
           <Route path="/add" element={<Navigate to="/closet" replace />} />
-          <Route path="/shoes/:id" element={<DetailPage />} />
+          <Route path="/shoes/:id" element={<RequireAuth><DetailPage /></RequireAuth>} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
         <TabBar />
