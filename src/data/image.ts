@@ -31,7 +31,34 @@ function canvasToJpegBlob(canvas: HTMLCanvasElement): Promise<Blob> {
   })
 }
 
-export async function compressImage(file: File): Promise<Blob> {
+export async function cropToSquareJpeg(
+  source: CanvasImageSource & { width: number; height: number },
+  crop: { x: number; y: number; size: number },
+): Promise<Blob> {
+  const srcW =
+    "naturalWidth" in source && source.naturalWidth > 0
+      ? source.naturalWidth
+      : source.width
+  const srcH =
+    "naturalHeight" in source && source.naturalHeight > 0
+      ? source.naturalHeight
+      : source.height
+  const size = Math.max(1, Math.min(crop.size, srcW, srcH))
+  const x = Math.min(Math.max(0, crop.x), Math.max(0, srcW - size))
+  const y = Math.min(Math.max(0, crop.y), Math.max(0, srcH - size))
+  const out = Math.min(MAX_SIDE, Math.round(size))
+  const canvas = document.createElement("canvas")
+  canvas.width = out
+  canvas.height = out
+  const ctx = canvas.getContext("2d")
+  if (!ctx) throw new Error("canvas")
+  ctx.fillStyle = "#ffffff"
+  ctx.fillRect(0, 0, out, out)
+  ctx.drawImage(source, x, y, size, size, 0, 0, out, out)
+  return canvasToJpegBlob(canvas)
+}
+
+export async function compressImage(file: Blob): Promise<Blob> {
   if (typeof createImageBitmap === "function") {
     try {
       const bitmap = await createImageBitmap(file, {

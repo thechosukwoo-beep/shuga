@@ -18,6 +18,7 @@ import {
   useParams,
 } from "react-router-dom"
 import { compressImage } from "./data/image"
+import { PhotoCrop } from "./PhotoCrop"
 import {
   addShoe,
   deleteShoes,
@@ -370,16 +371,16 @@ function ClosetPage() {
                 onClick={() => setAddOpen(false)}
                 className="fixed inset-0 z-30 cursor-default bg-ink/15 backdrop-blur-[2px]"
               />
-              <div className="sheet-in fixed bottom-[6.25rem] right-[max(1.5rem,calc(50%-215px+1.5rem))] z-40 min-w-[7rem] overflow-hidden rounded-xl border border-line bg-white/95 py-1 shadow-[0_14px_30px_-16px_rgba(25,23,19,0.35)] backdrop-blur-xl">
+              <div className="sheet-in fixed bottom-[6.25rem] right-[max(1.5rem,calc(50%-215px+1.5rem))] z-40 min-w-[8.5rem] overflow-hidden rounded-xl border border-line bg-white/95 py-1.5 shadow-[0_14px_30px_-16px_rgba(25,23,19,0.35)] backdrop-blur-xl">
                 <Link
                   to="/add/camera"
-                  className="block cursor-pointer px-3 py-2 text-[11px] transition duration-150 hover:bg-card hover:text-clay"
+                  className="block cursor-pointer px-3.5 py-2.5 text-[12.5px] transition duration-150 hover:bg-card hover:text-clay"
                 >
                   카메라로 추가
                 </Link>
                 <Link
                   to="/add/search"
-                  className="block cursor-pointer px-3 py-2 text-[11px] transition duration-150 hover:bg-card hover:text-clay"
+                  className="block cursor-pointer px-3.5 py-2.5 text-[12.5px] transition duration-150 hover:bg-card hover:text-clay"
                 >
                   직접 추가
                 </Link>
@@ -1210,11 +1211,11 @@ function CameraAddPage() {
   const navigate = useNavigate()
   const [photo, setPhoto] = useState<Blob | null>(null)
   const [preview, setPreview] = useState("")
+  const [cropFile, setCropFile] = useState<File | null>(null)
   const [name, setName] = useState("")
   const [brand, setBrand] = useState("")
   const [price, setPrice] = useState("")
   const [memo, setMemo] = useState("")
-  const [compressing, setCompressing] = useState(false)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState("")
 
@@ -1224,7 +1225,7 @@ function CameraAddPage() {
     }
   }, [preview])
 
-  async function onFile(event: ChangeEvent<HTMLInputElement>) {
+  function onFile(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0]
     event.target.value = ""
     if (!file) return
@@ -1232,30 +1233,21 @@ function CameraAddPage() {
       setError("사진만 넣을 수 있어요")
       return
     }
-
     setError("")
-    setCompressing(true)
-    try {
-      const blob = await compressImage(file)
-      setPhoto(blob)
-      setPreview((current) => {
-        if (current.startsWith("blob:")) URL.revokeObjectURL(current)
-        return URL.createObjectURL(blob)
-      })
-    } catch {
-      setPhoto(null)
-      setPreview((current) => {
-        if (current.startsWith("blob:")) URL.revokeObjectURL(current)
-        return ""
-      })
-      setError("이 사진은 쓸 수 없어요. 다른 장으로 찍어 주세요.")
-    } finally {
-      setCompressing(false)
-    }
+    setCropFile(file)
+  }
+
+  function applyCrop(blob: Blob) {
+    setCropFile(null)
+    setPhoto(blob)
+    setPreview((current) => {
+      if (current.startsWith("blob:")) URL.revokeObjectURL(current)
+      return URL.createObjectURL(blob)
+    })
   }
 
   async function save() {
-    if (!photo || compressing || saving) return
+    if (!photo || saving) return
     setSaving(true)
     const parsed = Number(price.replace(/,/g, ""))
     const ok = await addShoe(
@@ -1280,26 +1272,30 @@ function CameraAddPage() {
 
   return (
     <main className={`px-4 pb-10 pt-6 ${PAGE}`}>
+      {cropFile ? (
+        <PhotoCrop
+          file={cropFile}
+          onCancel={() => setCropFile(null)}
+          onDone={applyCrop}
+          onError={(message) => {
+            setCropFile(null)
+            setError(message)
+          }}
+        />
+      ) : null}
       <Link to="/closet" className={BACK_LINK}>
         ← 취소
       </Link>
       <div className="mt-5">
         <h1 className="text-[18px] font-semibold tracking-tight">카메라로 추가</h1>
-        <p className="mt-1 text-[11px] text-mist">사진을 찍거나 골라 넣으세요</p>
+        <p className="mt-1 text-[11px] text-mist">찍은 뒤 크기를 맞출 수 있어요</p>
       </div>
       <label className="relative mt-5 flex aspect-square cursor-pointer items-center justify-center overflow-hidden rounded-2xl border border-dashed border-line bg-white/60 transition duration-200 ease-out hover:border-clay/40 hover:bg-white active:scale-[0.99]">
         {preview ? (
           <img src={preview} alt="" className="size-full object-cover" />
         ) : (
-          <span className="text-[11px] tracking-[0.06em] text-mist">
-            {compressing ? "사진을 줄이는 중" : "사진 찍기"}
-          </span>
+          <span className="text-[11px] tracking-[0.06em] text-mist">사진 찍기</span>
         )}
-        {compressing && preview ? (
-          <span className="absolute inset-0 flex items-center justify-center bg-white/70 text-[11px] tracking-[0.06em] text-mist">
-            사진을 줄이는 중
-          </span>
-        ) : null}
         <input
           type="file"
           accept="image/*"
@@ -1343,7 +1339,7 @@ function CameraAddPage() {
         onClick={() => {
           void save()
         }}
-        disabled={!photo || compressing || saving}
+        disabled={!photo || saving}
         className="mt-5 w-full cursor-pointer rounded-xl bg-ink py-3 text-[12.5px] font-medium tracking-[0.04em] text-white shadow-[0_6px_18px_-8px_rgba(25,23,19,0.5)] transition duration-200 ease-out hover:shadow-[0_10px_24px_-10px_rgba(25,23,19,0.55)] active:scale-[0.98] disabled:cursor-not-allowed disabled:bg-line disabled:text-mist disabled:shadow-none"
       >
         넣기
@@ -1431,17 +1427,22 @@ function ManualAddPage() {
       </Link>
       <div className="mt-5">
         <h1 className="text-[18px] font-semibold tracking-tight">직접 추가</h1>
-        <p className="mt-1 text-[11px] text-mist">이름만 적어도 담깁니다</p>
+        <p className="mt-1 text-[11px] text-mist">갤러리에서 고르거나, 이름만 적어도 담깁니다</p>
       </div>
       <label className="relative mt-5 flex aspect-square cursor-pointer items-center justify-center overflow-hidden rounded-2xl border border-dashed border-line bg-white/60 transition duration-200 ease-out hover:border-clay/40 hover:bg-white active:scale-[0.99]">
         {preview ? (
           <img src={preview} alt="" className="size-full object-cover" />
         ) : (
           <span className="text-[11px] tracking-[0.06em] text-mist">
-            {compressing ? "사진을 줄이는 중" : "사진 고르기 (선택)"}
+            {compressing ? "사진을 줄이는 중" : "갤러리에서 고르기 (선택)"}
           </span>
         )}
-        <input type="file" accept="image/*" onChange={onFile} className="sr-only" />
+        <input
+          type="file"
+          accept="image/jpeg,image/png,image/webp,image/heic,image/heif,.jpg,.jpeg,.png,.webp,.heic,.heif"
+          onChange={onFile}
+          className="sr-only"
+        />
       </label>
       <input
         value={name}
