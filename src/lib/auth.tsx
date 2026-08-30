@@ -28,6 +28,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     supabase.auth.getSession().then(({ data }) => {
       setSession(data.session)
       setLoading(false)
+      if (!data.session) return
+      const url = new URL(window.location.href)
+      if (url.searchParams.has("code") || url.hash.includes("access_token")) {
+        url.search = ""
+        url.hash = ""
+        window.history.replaceState({}, "", url.pathname)
+      }
     })
     const { data } = supabase.auth.onAuthStateChange((_event, next) => {
       setSession(next)

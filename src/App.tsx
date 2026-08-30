@@ -572,9 +572,41 @@ function authErrorMessage(message: string) {
   ) {
     return "이미 있는 계정이에요"
   }
+  if (
+    text.includes("provider is not enabled") ||
+    text.includes("unsupported provider")
+  ) {
+    return "구글 로그인을 아직 열어두지 않았어요"
+  }
+  if (text.includes("access_denied") || text.includes("cancel")) {
+    return "구글 로그인을 취소했어요"
+  }
   if (text.includes("password")) return "비밀번호는 6자 이상이에요"
   if (text.includes("email")) return "이메일을 확인해 주세요"
   return "지금은 들어가기 어려워요"
+}
+
+function GoogleMark() {
+  return (
+    <svg viewBox="0 0 24 24" className="size-4" aria-hidden>
+      <path
+        fill="#4285F4"
+        d="M23.49 12.27c0-.79-.07-1.54-.2-2.27H12v4.3h6.46a5.52 5.52 0 0 1-2.4 3.63v3.01h3.88c2.27-2.09 3.55-5.17 3.55-8.67Z"
+      />
+      <path
+        fill="#34A853"
+        d="M12 24c3.24 0 5.96-1.07 7.95-2.91l-3.88-3.01c-1.08.72-2.45 1.15-4.07 1.15-3.13 0-5.78-2.11-6.73-4.96H1.27v3.11A12 12 0 0 0 12 24Z"
+      />
+      <path
+        fill="#FBBC05"
+        d="M5.27 14.27A7.21 7.21 0 0 1 4.89 12c0-.79.14-1.55.38-2.27V6.62H1.27A12 12 0 0 0 0 12c0 1.94.46 3.77 1.27 5.38l4-3.11Z"
+      />
+      <path
+        fill="#EA4335"
+        d="M12 4.75c1.76 0 3.34.61 4.58 1.8l3.44-3.44C17.95 1.19 15.24 0 12 0 7.31 0 3.26 2.69 1.27 6.62l4 3.11C6.22 6.86 8.87 4.75 12 4.75Z"
+      />
+    </svg>
+  )
 }
 
 function LoadingPage() {
@@ -596,9 +628,30 @@ function SignInForm() {
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
   const [mode, setMode] = useState<"in" | "up">("in")
-  const [error, setError] = useState("")
   const [notice, setNotice] = useState("")
   const [busy, setBusy] = useState(false)
+  const [error, setError] = useState(() => {
+    const params = new URLSearchParams(window.location.search)
+    const fromUrl = params.get("error_description") ?? params.get("error")
+    return fromUrl ? authErrorMessage(fromUrl) : ""
+  })
+
+  async function signInWithGoogle() {
+    setError("")
+    setNotice("")
+    setBusy(true)
+    const { error: next } = await supabase.auth.signInWithOAuth({
+      provider: "google",
+      options: {
+        redirectTo: `${window.location.origin}/account`,
+        queryParams: { prompt: "select_account" },
+      },
+    })
+    if (next) {
+      setError(authErrorMessage(next.message))
+      setBusy(false)
+    }
+  }
 
   async function submit() {
     setError("")
@@ -630,62 +683,83 @@ function SignInForm() {
   }
 
   return (
-    <form
-      className="mt-6"
-      onSubmit={(event) => {
-        event.preventDefault()
-        void submit()
-      }}
-    >
+    <div className="mt-6">
       <p className="text-[11px] leading-relaxed text-mist">
-        {mode === "in"
-          ? "같은 계정으로 어느 기기에서든 신발장이 따라옵니다."
-          : "이메일과 비밀번호로 계정을 만듭니다."}
+        같은 계정으로 어느 기기에서든 신발장이 따라옵니다.
       </p>
-      <input
-        type="email"
-        value={email}
-        required
-        autoComplete="email"
-        onChange={(event) => setEmail(event.target.value)}
-        placeholder="이메일"
-        className={`mt-4 ${FIELD}`}
-      />
-      <input
-        type="password"
-        value={password}
-        required
-        minLength={6}
-        autoComplete={mode === "up" ? "new-password" : "current-password"}
-        onChange={(event) => setPassword(event.target.value)}
-        placeholder="비밀번호"
-        className={`mt-2 ${FIELD}`}
-      />
-      {error ? (
-        <p className="mt-3 text-center text-[11px] text-clay">{error}</p>
-      ) : null}
-      {notice ? (
-        <p className="mt-3 text-center text-[11px] text-mist">{notice}</p>
-      ) : null}
-      <button
-        type="submit"
-        disabled={busy}
-        className="mt-5 w-full cursor-pointer rounded-xl bg-ink py-3 text-[12.5px] font-medium tracking-[0.04em] text-white shadow-[0_6px_18px_-8px_rgba(25,23,19,0.5)] transition duration-200 ease-out hover:shadow-[0_10px_24px_-10px_rgba(25,23,19,0.55)] active:scale-[0.98] disabled:cursor-not-allowed disabled:bg-line disabled:text-mist disabled:shadow-none"
-      >
-        {mode === "in" ? "들어가기" : "계정 만들기"}
-      </button>
       <button
         type="button"
+        disabled={busy}
         onClick={() => {
-          setMode(mode === "in" ? "up" : "in")
-          setError("")
-          setNotice("")
+          void signInWithGoogle()
         }}
-        className="mt-3 w-full cursor-pointer rounded-xl py-2.5 text-[12px] text-mist transition duration-200 ease-out hover:text-ink"
+        className={`mt-4 flex w-full cursor-pointer items-center justify-center gap-2 py-3 text-[12.5px] font-medium ${CARD} transition duration-200 ease-out hover:bg-white active:scale-[0.98] disabled:cursor-not-allowed disabled:text-mist`}
       >
-        {mode === "in" ? "계정 만들기" : "이미 계정이 있어요"}
+        <GoogleMark />
+        구글로 들어가기
       </button>
-    </form>
+      <div className="mt-5 flex items-center gap-3">
+        <span className="h-px flex-1 bg-line" />
+        <span className="text-[10px] tracking-[0.08em] text-mist">또는</span>
+        <span className="h-px flex-1 bg-line" />
+      </div>
+      <form
+        className="mt-4"
+        onSubmit={(event) => {
+          event.preventDefault()
+          void submit()
+        }}
+      >
+        <p className="text-[11px] leading-relaxed text-mist">
+          {mode === "in"
+            ? "이메일과 비밀번호로도 들어올 수 있어요."
+            : "이메일과 비밀번호로 계정을 만듭니다."}
+        </p>
+        <input
+          type="email"
+          value={email}
+          required
+          autoComplete="email"
+          onChange={(event) => setEmail(event.target.value)}
+          placeholder="이메일"
+          className={`mt-3 ${FIELD}`}
+        />
+        <input
+          type="password"
+          value={password}
+          required
+          minLength={6}
+          autoComplete={mode === "up" ? "new-password" : "current-password"}
+          onChange={(event) => setPassword(event.target.value)}
+          placeholder="비밀번호"
+          className={`mt-2 ${FIELD}`}
+        />
+        {error ? (
+          <p className="mt-3 text-center text-[11px] text-clay">{error}</p>
+        ) : null}
+        {notice ? (
+          <p className="mt-3 text-center text-[11px] text-mist">{notice}</p>
+        ) : null}
+        <button
+          type="submit"
+          disabled={busy}
+          className="mt-5 w-full cursor-pointer rounded-xl bg-ink py-3 text-[12.5px] font-medium tracking-[0.04em] text-white shadow-[0_6px_18px_-8px_rgba(25,23,19,0.5)] transition duration-200 ease-out hover:shadow-[0_10px_24px_-10px_rgba(25,23,19,0.55)] active:scale-[0.98] disabled:cursor-not-allowed disabled:bg-line disabled:text-mist disabled:shadow-none"
+        >
+          {mode === "in" ? "들어가기" : "계정 만들기"}
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            setMode(mode === "in" ? "up" : "in")
+            setError("")
+            setNotice("")
+          }}
+          className="mt-3 w-full cursor-pointer rounded-xl py-2.5 text-[12px] text-mist transition duration-200 ease-out hover:text-ink"
+        >
+          {mode === "in" ? "계정 만들기" : "이미 계정이 있어요"}
+        </button>
+      </form>
+    </div>
   )
 }
 
@@ -738,7 +812,7 @@ function AccountPage() {
       <main className={`px-4 pb-32 pt-6 ${PAGE}`}>
         <div>
           <h1 className="text-[19px] font-semibold tracking-tight">내 계정</h1>
-          <p className="mt-1 text-[11px] text-mist">이메일로 들어갑니다</p>
+          <p className="mt-1 text-[11px] text-mist">구글이나 이메일로 들어갑니다</p>
         </div>
         <SignInForm />
       </main>
@@ -801,8 +875,8 @@ function AccountPage() {
               }`}
             />
           </label>
-          <p className="mt-0.5 text-[9px] text-mist">
-            {renaming ? "이름을 적고 Enter" : `${closet.length}켤레와 함께`}
+          <p className="mt-0.5 truncate text-[9px] text-mist">
+            {renaming ? "이름을 적고 Enter" : (user.email ?? `${closet.length}켤레와 함께`)}
           </p>
         </div>
       </div>
