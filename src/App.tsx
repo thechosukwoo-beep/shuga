@@ -41,9 +41,14 @@ const FIELD =
 const SECTION_LABEL = "text-[10px] font-medium tracking-[0.12em] text-mist"
 const BACK_LINK =
   "inline-flex items-center gap-1 text-[11px] tracking-[0.06em] text-mist transition duration-150 hover:text-ink"
+const GALLERY_ACCEPT =
+  ".jpg,.jpeg,.png,.webp,.heic,.heif,.gif,image/jpeg,image/png,image/webp"
+
+let pendingManualPhoto: File | null = null
 
 function ClosetPage() {
   const { user } = useAuth()
+  const navigate = useNavigate()
   const [items, setItems] = useState<Shoe[]>([])
   const [closetName, setClosetName] = useState("슈가")
   const [renaming, setRenaming] = useState(false)
@@ -59,6 +64,7 @@ function ClosetPage() {
   const nameRef = useRef<HTMLInputElement>(null)
   const menuRef = useRef<HTMLDivElement>(null)
   const sortRef = useRef<HTMLDivElement>(null)
+  const galleryRef = useRef<HTMLInputElement>(null)
 
   const keyword = query.trim().toLowerCase()
   const filtered = useMemo(() => {
@@ -113,6 +119,18 @@ function ClosetPage() {
     document.addEventListener("pointerdown", closeMenu)
     return () => document.removeEventListener("pointerdown", closeMenu)
   }, [])
+
+  useEffect(() => {
+    const node = galleryRef.current
+    if (!node) return
+    function onCancel() {
+      pendingManualPhoto = null
+      setAddOpen(false)
+      navigate("/add/search")
+    }
+    node.addEventListener("cancel", onCancel)
+    return () => node.removeEventListener("cancel", onCancel)
+  }, [addOpen, navigate])
 
   function toggleSearch() {
     setMenuOpen(false)
@@ -378,12 +396,22 @@ function ClosetPage() {
                 >
                   카메라로 추가
                 </Link>
-                <Link
-                  to="/add/search"
-                  className="block cursor-pointer px-3.5 py-2.5 text-[12.5px] transition duration-150 hover:bg-card hover:text-clay"
-                >
+                <label className="relative block cursor-pointer px-3.5 py-2.5 text-[12.5px] transition duration-150 hover:bg-card hover:text-clay">
                   직접 추가
-                </Link>
+                  <input
+                    ref={galleryRef}
+                    type="file"
+                    accept={GALLERY_ACCEPT}
+                    className="absolute inset-0 cursor-pointer opacity-0"
+                    onChange={(event) => {
+                      const file = event.target.files?.[0]
+                      event.target.value = ""
+                      pendingManualPhoto = file ?? null
+                      setAddOpen(false)
+                      navigate("/add/search")
+                    }}
+                  />
+                </label>
               </div>
             </>
           ) : null}
@@ -1366,15 +1394,23 @@ function ManualAddPage() {
     }
   }, [preview])
 
-  async function onFile(event: ChangeEvent<HTMLInputElement>) {
-    const file = event.target.files?.[0]
-    event.target.value = ""
+  useEffect(() => {
+    const file = pendingManualPhoto
     if (!file) return
+    let alive = true
+    void applyFile(file).finally(() => {
+      if (alive) pendingManualPhoto = null
+    })
+    return () => {
+      alive = false
+    }
+  }, [])
+
+  async function applyFile(file: File) {
     if (file.type && !file.type.startsWith("image/")) {
       setError("사진만 넣을 수 있어요")
       return
     }
-
     setError("")
     setCompressing(true)
     try {
@@ -1394,6 +1430,13 @@ function ManualAddPage() {
     } finally {
       setCompressing(false)
     }
+  }
+
+  async function onFile(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0]
+    event.target.value = ""
+    if (!file) return
+    await applyFile(file)
   }
 
   async function save() {
@@ -1439,9 +1482,9 @@ function ManualAddPage() {
         )}
         <input
           type="file"
-          accept="image/jpeg,image/png,image/webp,image/heic,image/heif,.jpg,.jpeg,.png,.webp,.heic,.heif"
+          accept={GALLERY_ACCEPT}
           onChange={onFile}
-          className="sr-only"
+          className="absolute inset-0 cursor-pointer opacity-0"
         />
       </label>
       <input
